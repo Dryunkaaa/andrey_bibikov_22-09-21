@@ -24,12 +24,8 @@ public class FileDao {
         this.connection = connection;
     }
 
-    public List<File> findAll() {
-        return getListByQuery("select * from files");
-    }
-
     public List<File> getInnerFiles(long catalogId) {
-        return getListByQuery("select * from files where ParentId = " + catalogId);
+        return getListByQuery("select * from files where " + CFG.PARENT_ID + " = " + catalogId);
     }
 
     private List<File> getListByQuery(String query) {
