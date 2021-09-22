@@ -24,16 +24,89 @@ public class FileDao {
         this.connection = connection;
     }
 
-    public List<File> getAllFiles(long dirId) {
-        return getListByQuery("select* from files where IsDirectory = false and parentId = " + dirId);
+    public List<File> getEncodeFilesForDir(long dirId, List<String> encodeExtensions) {
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("select * from files");
+
+        for (int i = 0; i < encodeExtensions.size(); i++) {
+            sqlBuilder.append(i == 0 ? " where (" : " or ")
+                    .append(CFG.FULL_PATH)
+                    .append(" like '%")
+                    .append(encodeExtensions.get(i))
+                    .append("%'");
+        }
+
+        sqlBuilder.append(") and ")
+                .append(CFG.PARENT_ID)
+                .append(" = ")
+                .append(dirId);
+
+        return getListByQuery(sqlBuilder.toString());
     }
 
-    public List<File> getAllDirs(long dirId) {
-        return getListByQuery("select* from files where IsDirectory = true and parentId = " + dirId);
+    public List<File> getCopyFilesForDir(long dirId, List<String> encodeExtensions) {
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("select * from files");
+
+        for (int i = 0; i < encodeExtensions.size(); i++) {
+            sqlBuilder.append(i == 0 ? " where " : " and ")
+                    .append(CFG.FULL_PATH)
+                    .append(" not like '%")
+                    .append(encodeExtensions.get(i))
+                    .append("%'");
+        }
+
+        sqlBuilder.append(" and ")
+                .append(CFG.IS_DIRECTORY)
+                .append("= false and ")
+                .append(CFG.PARENT_ID)
+                .append("=")
+                .append(dirId);
+
+        return getListByQuery(sqlBuilder.toString());
     }
 
-    public List<File> getInnerFiles(long catalogId) {
-        return getListByQuery("select * from files where " + CFG.PARENT_ID + " = " + catalogId);
+    public List<File> getDirectoriesWithCopingFiles(List<String> encodeExtensions) {
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("select* from files where contentid in (select parentId from files");
+
+        for (int i = 0; i < encodeExtensions.size(); i++) {
+            sqlBuilder.append(i == 0 ? " where " : " and ")
+                    .append(CFG.FULL_PATH)
+                    .append(" not like '%")
+                    .append(encodeExtensions.get(i))
+                    .append("'");
+        }
+
+        sqlBuilder.append(" and ")
+                .append(CFG.IS_DIRECTORY)
+                .append("= false group by ")
+                .append(CFG.PARENT_ID)
+                .append(")");
+
+        return getListByQuery(sqlBuilder.toString());
+    }
+
+    public List<File> getDirectoriesWithEncodingFiles(List<String> encodeExtensions) {
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("select * from files where ")
+                .append(CFG.ID).append(" in (select ")
+                .append(CFG.PARENT_ID)
+                .append(" from files");
+
+        for (int i = 0; i < encodeExtensions.size(); i++) {
+            sqlBuilder.append(i == 0 ? " where " : " or ")
+                    .append(CFG.FULL_PATH)
+                    .append(" like '%")
+                    .append(encodeExtensions.get(i))
+                    .append("%'");
+        }
+
+        sqlBuilder.append(" group by ")
+                .append(CFG.PARENT_ID)
+                .append(")");
+
+        return getListByQuery(sqlBuilder.toString());
     }
 
     public List<File> getFilesToEncode(List<String> encodeExtensions) {
@@ -89,12 +162,14 @@ public class FileDao {
         return result;
     }
 
-    public File getRootDirectory() {
-        return getSingleFileByQuery("select * from files where parentId is null");
-    }
-
     public File getFileById(long id) {
-        return getSingleFileByQuery("select * from files where contentid = " + id);
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("select * from files where ")
+                .append(CFG.ID)
+                .append("=")
+                .append(id);
+
+        return getSingleFileByQuery(sqlBuilder.toString());
     }
 
     private File getSingleFileByQuery(String query) {

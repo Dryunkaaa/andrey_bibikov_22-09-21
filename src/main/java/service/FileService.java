@@ -7,7 +7,6 @@ import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class FileService {
 
@@ -19,126 +18,98 @@ public class FileService {
     }
 
     public List<File> getFilesToEncode() {
-        List<File> filesToEncode = fileDao.getFilesToEncode(CODING_EXTENSIONS);
-        List<File> result = new ArrayList<>();
+        List<File> filesToEncode = new ArrayList<>();
 
-        for (File encodeFile : filesToEncode) {
-            File moreFarthestDirectory = getMoreFarthestDirectory(result, encodeFile);
+        List<File> dirs = fileDao.getDirectoriesWithEncodingFiles(CODING_EXTENSIONS);
 
-            if (!containsPath(result, moreFarthestDirectory.getFullPath())) {
-                result.add(moreFarthestDirectory);
+        for (File dir : dirs) {
+            if (canEncodeDirectory(dir)) {
+                addFilesToEncode(filesToEncode, findFarthestDitToEncode(filesToEncode, dir));
+            } else {
+                List<File> encodeFilesOfDir = fileDao.getEncodeFilesForDir(dir.getId(), CODING_EXTENSIONS);
+                filesToEncode.addAll(encodeFilesOfDir);
             }
         }
 
-        return result;
+        return filesToEncode;
     }
 
     public List<File> getFilesToCopy() {
-        List<File> filesToCopy = fileDao.getFilesToCopy(CODING_EXTENSIONS);
-        List<File> result = new ArrayList<>();
+        List<File> filesToCopy = new ArrayList<>();
+        List<File> dirs = fileDao.getDirectoriesWithCopingFiles(CODING_EXTENSIONS);
 
-        for (File copyFile : filesToCopy) {
-            File moreFarthestDirectory = getMoreFarthestDirectoryToCopy(result, copyFile);
-
-            if (!containsPath(result, moreFarthestDirectory.getFullPath())) {
-                result.add(moreFarthestDirectory);
+        for (File dir : dirs) {
+            if (canCopyDirectory(dir)) {
+                addFilesToCopy(filesToCopy, findFarthestDirToCopy(filesToCopy, dir));
+            } else {
+                List<File> copyFilesOfDir = fileDao.getCopyFilesForDir(dir.getId(), CODING_EXTENSIONS);
+                filesToCopy.addAll(copyFilesOfDir);
             }
         }
 
-        return result;
+        return filesToCopy;
     }
 
-    private File getMoreFarthestDirectory(List<File> filesToEncode, File file) {
-        File parentFile = fileDao.getFileById(file.getParentId());
-        List<File> notFilesToEncode = getNotFilesToEncode(file, parentFile);
-
-        if (!notFilesToEncode.isEmpty() || directoryContainsFilesNotToEncode(parentFile)) {
-            return file;
-        }
-
-        return getMoreFarthestDirectory(filesToEncode, file, fileDao.getFileById(parentFile.getParentId()));
-    }
-
-    private File getMoreFarthestDirectory(List<File> filesToEncode, File file, File dir) {
+    private boolean canEncodeDirectory(File dir) {
         if (dir == null) {
-            return file;
-        }
-
-        if (containsPath(filesToEncode, dir.getFullPath())) {
-            return fileDao.getFileById(file.getParentId());
-        }
-
-        return getMoreFarthestDirectory(filesToEncode, fileDao.getFileById(file.getParentId()));
-    }
-
-    private File getMoreFarthestDirectoryToCopy(List<File> filesToCopy, File file) {
-        File parentFile = fileDao.getFileById(file.getParentId());
-        List<File> filesToEncode = fileDao.getFilesToCopy(CODING_EXTENSIONS);
-
-        if (!filesToEncode.isEmpty() && directoryContainsFilesNotToCopy(parentFile)) {
-            return file;
-        }
-
-        return getMoreFarthestDirectoryToCopy(filesToCopy, file, fileDao.getFileById(parentFile.getParentId()));
-    }
-
-    private File getMoreFarthestDirectoryToCopy(List<File> filesToCopy, File file, File dir) {
-        if (dir == null) {
-            return file;
-        }
-
-        if (containsPath(filesToCopy, dir.getFullPath())) {
-            return fileDao.getFileById(file.getParentId());
-        }
-
-        return getMoreFarthestDirectoryToCopy(filesToCopy, fileDao.getFileById(file.getParentId()));
-    }
-
-    public List<File> getInnerFiles(long catalogId) {
-        return fileDao.getInnerFiles(catalogId);
-    }
-
-    private List<File> getNotFilesToEncode(File inputFile, File directory) {
-        return getInnerFiles(directory.getId()).stream()
-                .filter(file -> CODING_EXTENSIONS.stream().noneMatch(extension -> file.getFullPath().endsWith(extension)) && !file.isDirectory() && !file.getFullPath().equals(inputFile.getFullPath()))
-                .collect(Collectors.toList());
-    }
-
-    private boolean directoryContainsFilesNotToEncode(File dir) {
-        List<File> allFiles = fileDao.getAllFiles(dir.getId());
-        List<File> allDirs = fileDao.getAllDirs(dir.getId());
-
-        if (allFiles.stream().anyMatch(file -> CODING_EXTENSIONS.stream().noneMatch(extension -> file.getFullPath().endsWith(extension)))) {
-            return true;
-        } else {
-            for (File innerDir : allDirs) {
-                if (directoryContainsFilesNotToEncode(innerDir)) {
-                    return true;
-                }
-            }
-
             return false;
         }
+
+        List<File> filesToCopy = fileDao.getCopyFilesForDir(dir.getId(), CODING_EXTENSIONS);
+        if (!filesToCopy.isEmpty()) {
+            return false;
+        }
+
+        return fileDao.getFilesToCopy(CODING_EXTENSIONS).stream()
+                .noneMatch(file -> file.getFullPath().startsWith(dir.getFullPath()));
     }
 
-    private boolean directoryContainsFilesNotToCopy(File dir) {
-        List<File> allFiles = fileDao.getAllFiles(dir.getId());
-        List<File> allDirs = fileDao.getAllDirs(dir.getId());
-
-        if (allFiles.stream().anyMatch(file -> CODING_EXTENSIONS.stream().anyMatch(extension -> file.getFullPath().endsWith(extension)))) {
-            return true;
-        } else {
-            for (File innerDir : allDirs) {
-                if (directoryContainsFilesNotToCopy(innerDir)) {
-                    return true;
-                }
-            }
-
+    private boolean canCopyDirectory(File dir) {
+        if (dir == null || !fileDao.getEncodeFilesForDir(dir.getId(), CODING_EXTENSIONS).isEmpty()) {
             return false;
+        }
+
+        return fileDao.getFilesToEncode(CODING_EXTENSIONS).stream()
+                .noneMatch(file -> file.getFullPath().startsWith(dir.getFullPath()));
+    }
+
+    private File findFarthestDitToEncode(List<File> alreadyEncoded, File dir) {
+        File parentDir = fileDao.getFileById(dir.getParentId());
+
+        if (canEncodeDirectory(parentDir) && alreadyEncoded.stream().noneMatch(file -> file.getFullPath().startsWith(parentDir.getFullPath()))) {
+            return findFarthestDitToEncode(alreadyEncoded, parentDir);
+        }
+
+        return dir;
+    }
+
+    private File findFarthestDirToCopy(List<File> alreadyCopied, File dir) {
+        File parentDir = fileDao.getFileById(dir.getParentId());
+
+        if (canCopyDirectory(parentDir) && alreadyCopied.stream().noneMatch(file -> file.getFullPath().startsWith(parentDir.getFullPath()))) {
+            return findFarthestDirToCopy(alreadyCopied, parentDir);
+        }
+
+        return dir;
+    }
+
+    private void addFilesToEncode(List<File> filesToEncode, File dirToEncode) {
+        List<File> encodeFilesOfDir = fileDao.getEncodeFilesForDir(dirToEncode.getId(), CODING_EXTENSIONS);
+
+        if (encodeFilesOfDir.size() > 1) {
+            filesToEncode.add(dirToEncode);
+        } else {
+            filesToEncode.addAll(encodeFilesOfDir);
         }
     }
 
-    private boolean containsPath(List<File> files, String path) {
-        return files.stream().anyMatch(file -> path.startsWith(file.getFullPath()));
+    private void addFilesToCopy(List<File> filesToCopy, File foundDirectory) {
+        List<File> copyFilesOfDir = fileDao.getCopyFilesForDir(foundDirectory.getId(), CODING_EXTENSIONS);
+
+        if (copyFilesOfDir.size() != 1) {
+            filesToCopy.add(foundDirectory);
+        } else {
+            filesToCopy.addAll(copyFilesOfDir);
+        }
     }
 }
